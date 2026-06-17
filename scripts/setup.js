@@ -1,35 +1,12 @@
 /**
- * Setup script: apply migrations and seed initial carrier data.
- * Run once: node scripts/setup.js
+ * Setup script: seed initial carrier data.
+ * Run after prisma migrate deploy: node scripts/setup.js
  */
 
-const Database = require("better-sqlite3");
-const fs = require("fs");
-const path = require("path");
+const { PrismaClient } = require("../src/generated/prisma");
 
-const DB_PATH = path.join(__dirname, "../prisma/dev.db");
-const MIGRATION_PATH = path.join(
-  __dirname,
-  "../prisma/migrations/20260609055836_init/migration.sql"
-);
+const prisma = new PrismaClient();
 
-const db = new Database(DB_PATH);
-
-// Apply migration if tables don't exist
-const tables = db
-  .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='Carrier'")
-  .all();
-
-if (tables.length === 0) {
-  console.log("Applying migration...");
-  const sql = fs.readFileSync(MIGRATION_PATH, "utf8");
-  db.exec(sql);
-  console.log("Migration applied.");
-} else {
-  console.log("Tables already exist, skipping migration.");
-}
-
-// Seed default carriers
 const carriers = [
   { name: "La Poste (Colissimo)", code: "colissimo" },
   { name: "DPD France", code: "dpd_fr" },
@@ -41,14 +18,17 @@ const carriers = [
   { name: "DHL", code: "dhl" },
 ];
 
-const insertCarrier = db.prepare(
-  "INSERT OR IGNORE INTO Carrier (name, code, createdAt) VALUES (?, ?, ?)"
-);
-
-for (const c of carriers) {
-  insertCarrier.run(c.name, c.code, new Date().toISOString());
+async function main() {
+  for (const c of carriers) {
+    await prisma.carrier.upsert({
+      where: { code: c.code },
+      update: {},
+      create: c,
+    });
+  }
+  console.log("Default carriers seeded.");
 }
 
-console.log("Default carriers seeded.");
-db.close();
-console.log("Setup complete. Run: npm run dev");
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());
