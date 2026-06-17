@@ -427,7 +427,7 @@ export default function PackageDetailPage() {
                         }`}
                       >
                         <p className="text-sm font-medium text-gray-800">{t.name}</p>
-                        <p className="text-xs text-gray-400">{t.carrier.name} · {t.events.length} 个节点</p>
+                        <p className="text-xs text-gray-400">{t.carrier?.name ?? "不限承运商"} · {t.events.length} 个节点</p>
                       </button>
                     ))}
                   </div>
