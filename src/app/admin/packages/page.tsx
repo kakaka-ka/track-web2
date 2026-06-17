@@ -134,8 +134,8 @@ export default function PackagesPage() {
 
   function generatePreview(currentSeed: number) {
     if (!selectedTemplate || !addForm.shippedAt || !addForm.estimatedDelivery) return;
-    const shipped = new Date(addForm.shippedAt);
-    const delivery = new Date(addForm.estimatedDelivery);
+    const shipped = new Date(parisInputToUTC(addForm.shippedAt));
+    const delivery = new Date(parisInputToUTC(addForm.estimatedDelivery));
     if (delivery <= shipped) return;
     const events = selectedTemplate.events;
     const times = generateTimestamps(shipped, delivery, events.length, currentSeed);
@@ -164,8 +164,8 @@ export default function PackagesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...addForm,
-        shippedAt: addForm.shippedAt ? new Date(addForm.shippedAt).toISOString() : null,
-        estimatedDelivery: addForm.estimatedDelivery ? new Date(addForm.estimatedDelivery).toISOString() : null,
+        shippedAt: addForm.shippedAt ? parisInputToUTC(addForm.shippedAt) : null,
+        estimatedDelivery: addForm.estimatedDelivery ? parisInputToUTC(addForm.estimatedDelivery) : null,
       }),
     });
 

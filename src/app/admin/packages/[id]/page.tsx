@@ -182,8 +182,8 @@ export default function PackageDetailPage() {
 
   function buildPreview(tmpl: Template | null, shipped: string, delivery: string, currentSeed: number) {
     if (!tmpl || !shipped || !delivery) { setPreviewEvents([]); return; }
-    const s = new Date(shipped);
-    const d = new Date(delivery);
+    const s = new Date(parisInputToISO(shipped));
+    const d = new Date(parisInputToISO(delivery));
     if (d <= s) { setPreviewEvents([]); return; }
     const times = generateTimestamps(s, d, tmpl.events.length, currentSeed);
     setPreviewEvents(tmpl.events.map((e, i) => ({
@@ -431,15 +431,15 @@ export default function PackageDetailPage() {
                 <p className="text-gray-400 text-sm text-center py-8">暂无物流轨迹，请添加事件或智能生成轨迹</p>
               ) : (
                 <div className="space-y-0">
-                  {pkg.events.map((event, i) => (
+                  {[...pkg.events].reverse().map((event, i, arr) => (
                     <div key={event.id} className="flex gap-4 group">
                       <div className="flex flex-col items-center">
-                        <div className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${i === 0 ? "bg-blue-500" : "bg-gray-300"}`} />
-                        {i < pkg.events.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1" />}
+                        <div className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${i === arr.length - 1 ? "bg-blue-500" : "bg-gray-300"}`} />
+                        {i < arr.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1" />}
                       </div>
                       <div className="pb-4 flex-1 flex items-start justify-between">
                         <div>
-                          <p className={`text-sm font-medium ${i === 0 ? "text-gray-900" : "text-gray-600"}`}>
+                          <p className={`text-sm font-medium ${i === arr.length - 1 ? "text-gray-900" : "text-gray-600"}`}>
                             {event.description}
                           </p>
                           <p className="text-xs text-gray-400 mt-0.5">

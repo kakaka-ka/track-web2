@@ -19,6 +19,7 @@ export default function DateTimePicker({ value, onChange, required }: Props) {
       />
       <input
         type="time"
+        lang="fr"
         required={required}
         value={timePart}
         onChange={(e) => onChange((datePart || "") + "T" + e.target.value)}
