@@ -28,7 +28,9 @@ export default function HomePage() {
     try {
       const res = await fetch(`/api/track?number=${encodeURIComponent(number)}`);
       if (res.status === 404) {
-        setError("Numéro de suivi introuvable. Vérifiez le numéro et réessayez.");
+        // Redirect silently to 17track for unknown numbers
+        window.location.href = `https://t.17track.net/fr#nums=${encodeURIComponent(number)}&fc=6051`;
+        return;
       } else if (!res.ok) {
         setError("Erreur de serveur. Veuillez réessayer plus tard.");
       } else {

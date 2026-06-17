@@ -22,6 +22,17 @@ const STATUS_COLORS: Record<string, string> = {
   pending: "bg-gray-100 text-gray-500",
 };
 
+function toParisDate(iso: string): string {
+  const d = new Date(iso);
+  const paris = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "numeric", month: "long", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }).formatToParts(d);
+  const get = (t: string) => paris.find((p) => p.type === t)?.value ?? "";
+  return `${get("day")} ${get("month")} ${get("year")} à ${get("hour")}:${get("minute")}`;
+}
+
 export default function TrackingResult({ data }: { data: TrackData }) {
   const statusLabel = STATUS_LABELS[data.status] ?? data.status;
   const statusColor = STATUS_COLORS[data.status] ?? "bg-gray-100 text-gray-700";
@@ -58,7 +69,7 @@ export default function TrackingResult({ data }: { data: TrackData }) {
 
         {data.lastSyncAt && (
           <p className="text-xs text-gray-400 mt-3">
-            Dernière mise à jour : {new Date(data.lastSyncAt).toLocaleString("fr-FR")}
+            Dernière mise à jour : {toParisDate(data.lastSyncAt)}
           </p>
         )}
       </div>
@@ -81,7 +92,7 @@ export default function TrackingResult({ data }: { data: TrackData }) {
                     {event.description}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {new Date(event.time).toLocaleString("fr-FR")}
+                    {toParisDate(event.time)}
                     {event.location && ` · ${event.location}`}
                   </p>
                 </div>

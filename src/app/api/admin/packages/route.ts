@@ -35,14 +35,22 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { trackingNumber, carrierId, orderId, buyerName, note } = body;
+  const { trackingNumber, carrierId, orderId, buyerName, note, shippedAt, estimatedDelivery } = body;
 
   if (!trackingNumber || !carrierId) {
     return NextResponse.json({ error: "trackingNumber and carrierId required" }, { status: 400 });
   }
 
   const pkg = await prisma.package.create({
-    data: { trackingNumber, carrierId: Number(carrierId), orderId, buyerName, note },
+    data: {
+      trackingNumber,
+      carrierId: Number(carrierId),
+      orderId,
+      buyerName,
+      note,
+      shippedAt: shippedAt ? new Date(shippedAt) : null,
+      estimatedDelivery: estimatedDelivery ? new Date(estimatedDelivery) : null,
+    },
     include: { carrier: true },
   });
 

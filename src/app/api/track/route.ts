@@ -78,6 +78,14 @@ export async function GET(request: NextRequest) {
 
 function sanitize(pkg: PackageWithRelations) {
   const AMAZON_PATTERN = /amazon|amzn|fulfillment by amazon/gi;
+  const nowParis = new Date(); // UTC, compare directly with stored UTC times
+
+  // Only show events that have already happened (time <= now)
+  // If package is delivered, show all events (locked)
+  const visibleEvents = pkg.status === "delivered"
+    ? pkg.events
+    : pkg.events.filter((e) => e.time <= nowParis);
+
   return {
     trackingNumber: pkg.trackingNumber,
     status: pkg.status,
@@ -87,7 +95,7 @@ function sanitize(pkg: PackageWithRelations) {
       code: pkg.carrier.code,
     },
     lastSyncAt: pkg.lastSyncAt,
-    events: pkg.events.map((e) => ({
+    events: visibleEvents.map((e) => ({
       time: e.time,
       location: e.location?.replace(AMAZON_PATTERN, ""),
       description: e.description.replace(AMAZON_PATTERN, ""),

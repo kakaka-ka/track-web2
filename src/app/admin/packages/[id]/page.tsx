@@ -41,7 +41,7 @@ interface TemplateEvent {
 interface Template {
   id: number;
   name: string;
-  carrier: { name: string };
+  carrier?: { name: string };
   events: TemplateEvent[];
 }
 
@@ -53,13 +53,72 @@ interface Package {
   note: string | null;
   orderId: string | null;
   buyerName: string | null;
+  shippedAt: string | null;
+  estimatedDelivery: string | null;
   carrier: { name: string; code: string };
   events: TrackEvent[];
 }
 
-function toLocalDatetimeValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+function toParisInputValue(isoOrDate: string | Date): string {
+  const d = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Paris",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+  }).formatToParts(d);
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${g("year")}-${g("month")}-${g("day")}T${g("hour")}:${g("minute")}`;
+}
+
+function parisInputToISO(value: string): string {
+  // value is "2026-06-18T14:30" in Paris local time
+  // We need to find UTC equivalent
+  const guessLocal = new Date(value);
+  // Get Paris offset for this guessed time
+  const formatter = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Paris",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+  });
+  const parisStr = formatter.format(guessLocal).replace(" ", "T");
+  const diff = guessLocal.getTime() - new Date(parisStr).getTime();
+  return new Date(guessLocal.getTime() + diff).toISOString();
+}
+
+function seededRand(seed: number): () => number {
+  let s = seed;
+  return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+}
+
+function generateTimestamps(shipped: Date, delivery: Date, count: number, seed: number): Date[] {
+  if (count <= 0) return [];
+  if (count === 1) return [delivery];
+  const rand = seededRand(seed);
+  const totalMs = delivery.getTime() - shipped.getTime();
+  const minGapMs = 30 * 60 * 1000; // 30 min minimum gap
+
+  // Generate random increasing fractions
+  const raw: number[] = [];
+  for (let i = 0; i < count - 1; i++) raw.push(rand());
+  raw.sort((a, b) => a - b);
+
+  // Map fractions into [shippedAt+minGap .. delivery-minGap]
+  const usable = totalMs - count * minGapMs;
+  const times: Date[] = [];
+  for (let i = 0; i < count - 1; i++) {
+    const offset = minGapMs * (i + 1) + raw[i] * usable;
+    times.push(new Date(shipped.getTime() + offset));
+  }
+  times.push(delivery);
+  return times;
+}
+
+function toParisDateShort(isoStr: string): string {
+  return new Date(isoStr).toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "2-digit", month: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+  });
 }
 
 export default function PackageDetailPage() {
@@ -69,29 +128,32 @@ export default function PackageDetailPage() {
   const [pkg, setPkg] = useState<Package | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Edit basic info
   const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState({ status: "", statusDetail: "", note: "", buyerName: "", orderId: "" });
+  const [editForm, setEditForm] = useState({
+    status: "", statusDetail: "", note: "", buyerName: "", orderId: "",
+    shippedAt: "", estimatedDelivery: "",
+  });
   const [saving, setSaving] = useState(false);
 
-  // Add single event
   const [showAddEvent, setShowAddEvent] = useState(false);
-  const [newEvent, setNewEvent] = useState({ time: toLocalDatetimeValue(new Date()), location: "", description: "" });
+  const [newEvent, setNewEvent] = useState({ time: toParisInputValue(new Date()), location: "", description: "" });
   const [addingEvent, setAddingEvent] = useState(false);
 
-  // Apply template
+  // Smart generate template modal
   const [showTemplate, setShowTemplate] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
-  const [baseTime, setBaseTime] = useState(toLocalDatetimeValue(new Date()));
+  const [genShippedAt, setGenShippedAt] = useState("");
+  const [genDelivery, setGenDelivery] = useState("");
+  const [seed, setSeed] = useState(12345);
+  const [previewEvents, setPreviewEvents] = useState<{ time: Date; description: string; location: string }[]>([]);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
-  const [previewEvents, setPreviewEvents] = useState<{ time: string; location: string; description: string }[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const res = await fetch(`/api/admin/packages/${id}`);
     if (res.ok) {
-      const data = await res.json();
+      const data: Package = await res.json();
       setPkg(data);
       setEditForm({
         status: data.status,
@@ -99,7 +161,12 @@ export default function PackageDetailPage() {
         note: data.note ?? "",
         buyerName: data.buyerName ?? "",
         orderId: data.orderId ?? "",
+        shippedAt: data.shippedAt ? toParisInputValue(data.shippedAt) : "",
+        estimatedDelivery: data.estimatedDelivery ? toParisInputValue(data.estimatedDelivery) : "",
       });
+      // Pre-fill modal with package dates
+      setGenShippedAt(data.shippedAt ? toParisInputValue(data.shippedAt) : toParisInputValue(new Date()));
+      setGenDelivery(data.estimatedDelivery ? toParisInputValue(data.estimatedDelivery) : toParisInputValue(new Date(Date.now() + 3 * 86400000)));
     }
     setLoading(false);
   }, [id]);
@@ -112,23 +179,35 @@ export default function PackageDetailPage() {
     }
   }, [showTemplate]);
 
-  // Compute preview when template or baseTime changes
-  useEffect(() => {
-    if (!selectedTemplate || !baseTime) { setPreviewEvents([]); return; }
-    const base = new Date(baseTime);
-    const events = selectedTemplate.events.map((e) => {
-      const t = new Date(base.getTime() + e.offsetHours * 3600 * 1000);
-      return { time: t.toISOString(), location: e.location ?? "", description: e.description };
-    });
-    setPreviewEvents(events);
-  }, [selectedTemplate, baseTime]);
+  function buildPreview(tmpl: Template | null, shipped: string, delivery: string, currentSeed: number) {
+    if (!tmpl || !shipped || !delivery) { setPreviewEvents([]); return; }
+    const s = new Date(shipped);
+    const d = new Date(delivery);
+    if (d <= s) { setPreviewEvents([]); return; }
+    const times = generateTimestamps(s, d, tmpl.events.length, currentSeed);
+    setPreviewEvents(tmpl.events.map((e, i) => ({
+      time: times[i] ?? d,
+      description: e.description,
+      location: e.location ?? "",
+    })));
+  }
+
+  function handleRegenerate() {
+    const newSeed = Math.floor(Math.random() * 999999);
+    setSeed(newSeed);
+    buildPreview(selectedTemplate, genShippedAt, genDelivery, newSeed);
+  }
 
   async function handleSaveInfo() {
     setSaving(true);
     await fetch(`/api/admin/packages/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(editForm),
+      body: JSON.stringify({
+        ...editForm,
+        shippedAt: editForm.shippedAt ? parisInputToISO(editForm.shippedAt) : null,
+        estimatedDelivery: editForm.estimatedDelivery ? parisInputToISO(editForm.estimatedDelivery) : null,
+      }),
     });
     setSaving(false);
     setEditMode(false);
@@ -141,11 +220,14 @@ export default function PackageDetailPage() {
     await fetch(`/api/admin/packages/${id}/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newEvent),
+      body: JSON.stringify({
+        ...newEvent,
+        time: parisInputToISO(newEvent.time),
+      }),
     });
     setAddingEvent(false);
     setShowAddEvent(false);
-    setNewEvent({ time: toLocalDatetimeValue(new Date()), location: "", description: "" });
+    setNewEvent({ time: toParisInputValue(new Date()), location: "", description: "" });
     load();
   }
 
@@ -156,25 +238,44 @@ export default function PackageDetailPage() {
   }
 
   async function handleApplyTemplate() {
-    if (!selectedTemplate || !previewEvents.length) return;
+    if (!selectedTemplate || previewEvents.length === 0) return;
     setApplyingTemplate(true);
-    const lastEvent = previewEvents[0]; // first in array = latest (highest offset)
-    // Determine status from last event description
+
+    const lastEvent = previewEvents[previewEvents.length - 1];
     const desc = lastEvent.description.toLowerCase();
     let status = "in_transit";
-    if (desc.includes("livré") || desc.includes("remis")) status = "delivered";
-    else if (desc.includes("en livraison") || desc.includes("distribution")) status = "out_for_delivery";
-    else if (desc.includes("transit") || desc.includes("traitement")) status = "in_transit";
-    else if (desc.includes("confié") || desc.includes("préparation")) status = "info_received";
+    if (desc.includes("livré") || desc.includes("remis") || desc.includes("signé")) status = "delivered";
+    else if (desc.includes("livraison") || desc.includes("distribution") || desc.includes("en cours de livraison")) status = "out_for_delivery";
+    else if (desc.includes("transit") || desc.includes("traitement") || desc.includes("en cours d")) status = "in_transit";
+    else if (desc.includes("confié") || desc.includes("préparation") || desc.includes("pris en charge")) status = "info_received";
 
     await fetch(`/api/admin/packages/${id}/events`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ events: previewEvents, status }),
+      body: JSON.stringify({
+        events: previewEvents.map((ev) => ({
+          time: ev.time.toISOString(),
+          location: ev.location,
+          description: ev.description,
+        })),
+        status,
+      }),
     });
+
+    // Also update shippedAt/estimatedDelivery if changed
+    await fetch(`/api/admin/packages/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shippedAt: parisInputToISO(genShippedAt),
+        estimatedDelivery: parisInputToISO(genDelivery),
+      }),
+    });
+
     setApplyingTemplate(false);
     setShowTemplate(false);
     setSelectedTemplate(null);
+    setPreviewEvents([]);
     load();
   }
 
@@ -183,6 +284,8 @@ export default function PackageDetailPage() {
     await fetch(`/api/admin/packages/${id}`, { method: "DELETE" });
     router.push("/admin/packages");
   }
+
+  const isDelivered = pkg?.status === "delivered";
 
   if (loading) return (
     <div className="flex min-h-screen">
@@ -214,6 +317,9 @@ export default function PackageDetailPage() {
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[pkg.status] ?? "bg-gray-100 text-gray-600"}`}>
             {STATUS_OPTIONS.find((s) => s.value === pkg.status)?.label ?? pkg.status}
           </span>
+          {isDelivered && (
+            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">🔒 已签收锁定</span>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -231,45 +337,42 @@ export default function PackageDetailPage() {
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">状态</label>
-                    <select
-                      value={editForm.status}
-                      onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
+                    <select value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                       {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">状态说明</label>
-                    <input
-                      value={editForm.statusDetail}
-                      onChange={(e) => setEditForm({ ...editForm, statusDetail: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <input value={editForm.statusDetail} onChange={(e) => setEditForm({ ...editForm, statusDetail: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">发货时间（巴黎时间）</label>
+                    <input type="datetime-local" value={editForm.shippedAt}
+                      onChange={(e) => setEditForm({ ...editForm, shippedAt: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">预计送达（巴黎时间）</label>
+                    <input type="datetime-local" value={editForm.estimatedDelivery}
+                      onChange={(e) => setEditForm({ ...editForm, estimatedDelivery: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">订单号</label>
-                    <input
-                      value={editForm.orderId}
-                      onChange={(e) => setEditForm({ ...editForm, orderId: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <input value={editForm.orderId} onChange={(e) => setEditForm({ ...editForm, orderId: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">买家姓名</label>
-                    <input
-                      value={editForm.buyerName}
-                      onChange={(e) => setEditForm({ ...editForm, buyerName: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <input value={editForm.buyerName} onChange={(e) => setEditForm({ ...editForm, buyerName: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">备注</label>
-                    <input
-                      value={editForm.note}
-                      onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <input value={editForm.note} onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div className="flex gap-2 pt-1">
                     <button onClick={() => setEditMode(false)} className="flex-1 border border-gray-300 rounded-lg py-1.5 text-sm hover:bg-gray-50">取消</button>
@@ -284,18 +387,17 @@ export default function PackageDetailPage() {
                   <Row label="订单号" value={pkg.orderId ?? "—"} />
                   <Row label="买家" value={pkg.buyerName ?? "—"} />
                   <Row label="状态说明" value={pkg.statusDetail ?? "—"} />
+                  <Row label="发货时间" value={pkg.shippedAt ? toParisDateShort(pkg.shippedAt) : "—"} />
+                  <Row label="预计送达" value={pkg.estimatedDelivery ? toParisDateShort(pkg.estimatedDelivery) : "—"} />
                   <Row label="备注" value={pkg.note ?? "—"} />
                 </dl>
               )}
             </div>
 
-            {/* Danger zone */}
             <div className="bg-white rounded-xl shadow-sm border border-red-100 p-5">
               <h2 className="font-semibold text-red-700 mb-3 text-sm">危险操作</h2>
-              <button
-                onClick={handleDelete}
-                className="w-full border border-red-300 text-red-600 hover:bg-red-50 rounded-lg py-2 text-sm transition-colors"
-              >
+              <button onClick={handleDelete}
+                className="w-full border border-red-300 text-red-600 hover:bg-red-50 rounded-lg py-2 text-sm transition-colors">
                 删除此包裹
               </button>
             </div>
@@ -306,24 +408,24 @@ export default function PackageDetailPage() {
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="font-semibold text-gray-800">物流轨迹（{pkg.events.length} 条）</h2>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowTemplate(true)}
-                    className="text-sm border border-blue-200 text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    应用模板
-                  </button>
-                  <button
-                    onClick={() => setShowAddEvent(true)}
-                    className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    + 添加事件
-                  </button>
-                </div>
+                {isDelivered ? (
+                  <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">已签收，轨迹已锁定</span>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowTemplate(true)}
+                      className="text-sm border border-blue-200 text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
+                      智能生成轨迹
+                    </button>
+                    <button onClick={() => setShowAddEvent(true)}
+                      className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition-colors">
+                      + 添加事件
+                    </button>
+                  </div>
+                )}
               </div>
 
               {pkg.events.length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-8">暂无物流轨迹，请添加事件或应用模板</p>
+                <p className="text-gray-400 text-sm text-center py-8">暂无物流轨迹，请添加事件或智能生成轨迹</p>
               ) : (
                 <div className="space-y-0">
                   {pkg.events.map((event, i) => (
@@ -338,16 +440,16 @@ export default function PackageDetailPage() {
                             {event.description}
                           </p>
                           <p className="text-xs text-gray-400 mt-0.5">
-                            {new Date(event.time).toLocaleString("zh-CN")}
+                            {toParisDateShort(event.time)}
                             {event.location && ` · ${event.location}`}
                           </p>
                         </div>
-                        <button
-                          onClick={() => handleDeleteEvent(event.id)}
-                          className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs ml-3 flex-shrink-0 transition-opacity"
-                        >
-                          删除
-                        </button>
+                        {!isDelivered && (
+                          <button onClick={() => handleDeleteEvent(event.id)}
+                            className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs ml-3 flex-shrink-0 transition-opacity">
+                            删除
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -364,34 +466,23 @@ export default function PackageDetailPage() {
               <h2 className="text-lg font-semibold mb-4">添加物流事件</h2>
               <form onSubmit={handleAddEvent} className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">时间 *</label>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={newEvent.time}
+                  <label className="block text-sm font-medium text-gray-700 mb-1">时间（巴黎时间）*</label>
+                  <input type="datetime-local" required value={newEvent.time}
                     onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">地点</label>
-                  <input
-                    value={newEvent.location}
-                    onChange={(e) => setNewEvent({ ...newEvent, location: e.target.value })}
+                  <input value={newEvent.location} onChange={(e) => setNewEvent({ ...newEvent, location: e.target.value })}
                     placeholder="例：France"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">描述 *</label>
-                  <textarea
-                    required
-                    rows={3}
-                    value={newEvent.description}
+                  <textarea required rows={3} value={newEvent.description}
                     onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
-                    placeholder="例：Votre colis est en cours de traitement sur le site de tri local."
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  />
+                    placeholder="例：Votre colis est en cours de traitement."
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
                 </div>
                 <div className="flex gap-3 pt-1">
                   <button type="button" onClick={() => setShowAddEvent(false)} className="flex-1 border border-gray-300 rounded-lg py-2 text-sm hover:bg-gray-50">取消</button>
@@ -404,76 +495,80 @@ export default function PackageDetailPage() {
           </div>
         )}
 
-        {/* Apply Template Modal */}
+        {/* Smart Generate Modal */}
         {showTemplate && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
-              <h2 className="text-lg font-semibold mb-4">应用物流模板</h2>
-              <p className="text-sm text-gray-500 mb-4">选择模板并设置基准时间（最早那条事件的时间），系统将自动计算所有节点时间。</p>
+              <h2 className="text-lg font-semibold mb-1">智能生成物流轨迹</h2>
+              <p className="text-sm text-gray-500 mb-4">设置发货时间与预计送达时间，系统在此范围内随机分配各节点时间。</p>
 
+              {/* Date range */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">发货时间（巴黎时间）</label>
+                  <input type="datetime-local" value={genShippedAt}
+                    onChange={(e) => { setGenShippedAt(e.target.value); setPreviewEvents([]); }}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">预计送达（巴黎时间）</label>
+                  <input type="datetime-local" value={genDelivery}
+                    onChange={(e) => { setGenDelivery(e.target.value); setPreviewEvents([]); }}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+
+              {/* Template selection */}
               {templates.length === 0 ? (
                 <p className="text-gray-400 text-sm">暂无模板，请先在<a href="/admin/templates" className="text-blue-600 ml-1">模板管理</a>中创建。</p>
               ) : (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                    {templates.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => setSelectedTemplate(t)}
-                        className={`text-left p-3 border rounded-lg transition-colors ${
-                          selectedTemplate?.id === t.id
-                            ? "border-blue-500 bg-blue-50"
-                            : "border-gray-200 hover:border-gray-300"
-                        }`}
-                      >
-                        <p className="text-sm font-medium text-gray-800">{t.name}</p>
-                        <p className="text-xs text-gray-400">{t.carrier?.name ?? "不限承运商"} · {t.events.length} 个节点</p>
-                      </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  {templates.map((t) => (
+                    <button key={t.id} onClick={() => { setSelectedTemplate(t); setPreviewEvents([]); }}
+                      className={`text-left p-3 border rounded-lg transition-colors ${
+                        selectedTemplate?.id === t.id ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"
+                      }`}>
+                      <p className="text-sm font-medium text-gray-800">{t.name}</p>
+                      <p className="text-xs text-gray-400">{t.carrier?.name ?? "不限承运商"} · {t.events.length} 个节点</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Generate / Regenerate buttons */}
+              {selectedTemplate && (
+                <div className="flex gap-2 mb-4">
+                  <button onClick={() => { const s = Math.floor(Math.random() * 999999); setSeed(s); buildPreview(selectedTemplate, genShippedAt, genDelivery, s); }}
+                    className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700">
+                    {previewEvents.length === 0 ? "预览生成轨迹" : "重新随机"}
+                  </button>
+                </div>
+              )}
+
+              {/* Preview */}
+              {previewEvents.length > 0 && (
+                <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                  <p className="text-xs font-medium text-gray-600 mb-3">预览（将替换现有 {pkg.events.length} 条轨迹）：</p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {previewEvents.map((ev, i) => (
+                      <div key={i} className="flex gap-3 text-xs">
+                        <span className="text-blue-400 w-28 flex-shrink-0">
+                          {ev.time.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <span className="text-gray-700">{ev.description}</span>
+                        {ev.location && <span className="text-gray-400">· {ev.location}</span>}
+                      </div>
                     ))}
                   </div>
-
-                  {selectedTemplate && (
-                    <>
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">基准时间（第一条事件的时间）</label>
-                        <input
-                          type="datetime-local"
-                          value={baseTime}
-                          onChange={(e) => setBaseTime(e.target.value)}
-                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      {previewEvents.length > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                          <p className="text-xs font-medium text-gray-600 mb-3">预览轨迹（将替换现有轨迹）：</p>
-                          <div className="space-y-2">
-                            {[...previewEvents].reverse().map((e, i) => (
-                              <div key={i} className="flex gap-3">
-                                <div className="w-32 text-xs text-gray-400 flex-shrink-0 pt-0.5">
-                                  {new Date(e.time).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-700">{e.description}</p>
-                                  {e.location && <p className="text-xs text-gray-400">{e.location}</p>}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </>
+                </div>
               )}
 
               <div className="flex gap-3 pt-2">
-                <button onClick={() => { setShowTemplate(false); setSelectedTemplate(null); }} className="flex-1 border border-gray-300 rounded-lg py-2 text-sm hover:bg-gray-50">取消</button>
-                <button
-                  onClick={handleApplyTemplate}
-                  disabled={!selectedTemplate || applyingTemplate}
-                  className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-60"
-                >
+                <button onClick={() => { setShowTemplate(false); setSelectedTemplate(null); setPreviewEvents([]); }}
+                  className="flex-1 border border-gray-300 rounded-lg py-2 text-sm hover:bg-gray-50">取消</button>
+                <button onClick={handleApplyTemplate}
+                  disabled={previewEvents.length === 0 || applyingTemplate}
+                  className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-60">
                   {applyingTemplate ? "应用中..." : "确认应用（替换现有轨迹）"}
                 </button>
               </div>

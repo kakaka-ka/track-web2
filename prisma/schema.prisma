@@ -45,6 +45,8 @@ model Package {
   status          String    @default("pending")
   statusDetail    String?
   lastSyncAt      DateTime?
+  shippedAt       DateTime?
+  estimatedDelivery DateTime?
   events          TrackingEvent[]
   note            String?
   orderId         String?
