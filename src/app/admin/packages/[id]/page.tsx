@@ -463,18 +463,18 @@ export default function PackageDetailPage() {
                 <p className="text-gray-400 text-sm text-center py-8">暂无物流轨迹，请添加事件或智能生成轨迹</p>
               ) : (
                 <div className="space-y-0">
-                  {[...pkg.events].reverse().map((event, i, arr) => (
+                  {pkg.events.map((event, i) => (
                     <div key={event.id} className="flex gap-4 group">
                       <div className="flex flex-col items-center">
-                        <div className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${i === arr.length - 1 ? "bg-blue-500" : "bg-gray-300"}`} />
-                        {i < arr.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1" />}
+                        <div className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${i === 0 ? "bg-blue-500" : "bg-gray-300"}`} />
+                        {i < pkg.events.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1" />}
                       </div>
                       <div className="pb-4 flex-1 flex items-start justify-between">
                         <div
                           className={`flex-1 ${!isDelivered ? "cursor-pointer hover:opacity-70" : ""}`}
                           onClick={() => !isDelivered && openEditEvent(event)}
                         >
-                          <p className={`text-sm font-medium ${i === arr.length - 1 ? "text-gray-900" : "text-gray-600"}`}>
+                          <p className={`text-sm font-medium ${i === 0 ? "text-gray-900" : "text-gray-600"}`}>
                             {event.description}
                           </p>
                           <p className="text-xs text-gray-400 mt-0.5">
