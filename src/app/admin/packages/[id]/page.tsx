@@ -323,6 +323,10 @@ export default function PackageDetailPage() {
   }
 
   const isDelivered = pkg?.status === "delivered";
+  // Blue dot = last event whose time has already passed (most recent past event)
+  // pkg.events sorted desc by time, so find first one with time <= now
+  const now = new Date();
+  const lastPastIdx = pkg ? pkg.events.findIndex((e) => new Date(e.time) <= now) : -1;
 
   if (loading) return (
     <div className="flex min-h-screen">
@@ -466,7 +470,7 @@ export default function PackageDetailPage() {
                   {pkg.events.map((event, i) => (
                     <div key={event.id} className="flex gap-4 group">
                       <div className="flex flex-col items-center">
-                        <div className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${i === 0 ? "bg-blue-500" : "bg-gray-300"}`} />
+                        <div className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${i === lastPastIdx ? "bg-blue-500" : i < lastPastIdx ? "bg-gray-400" : "bg-gray-200"}`} />
                         {i < pkg.events.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1" />}
                       </div>
                       <div className="pb-4 flex-1 flex items-start justify-between">
@@ -474,7 +478,7 @@ export default function PackageDetailPage() {
                           className={`flex-1 ${!isDelivered ? "cursor-pointer hover:opacity-70" : ""}`}
                           onClick={() => !isDelivered && openEditEvent(event)}
                         >
-                          <p className={`text-sm font-medium ${i === 0 ? "text-gray-900" : "text-gray-600"}`}>
+                          <p className={`text-sm font-medium ${i === lastPastIdx ? "text-gray-900" : i < lastPastIdx ? "text-gray-600" : "text-gray-300"}`}>
                             {event.description}
                           </p>
                           <p className="text-xs text-gray-400 mt-0.5">

@@ -19,18 +19,48 @@ export async function GET(request: NextRequest) {
     ...(status && { status }),
   };
 
+  const now = new Date();
+
   const [total, packages] = await Promise.all([
     prisma.package.count({ where }),
     prisma.package.findMany({
       where,
-      include: { carrier: true },
+      include: {
+        carrier: true,
+        events: {
+          where: { time: { lte: now } },
+          orderBy: { time: "desc" },
+          take: 1,
+        },
+      },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
   ]);
 
-  return NextResponse.json({ packages, total, page, pageSize });
+  // Derive effective status from last past event
+  const STATUS_LABELS_MAP: Record<string, string> = {
+    pending: "pending", info_received: "info_received", in_transit: "in_transit",
+    out_for_delivery: "out_for_delivery", delivered: "delivered",
+    delivery_failed: "delivery_failed", exception: "exception", expired: "expired",
+  };
+
+  const packagesWithStatus = packages.map((pkg) => {
+    if (pkg.status === "delivered") return { ...pkg, events: undefined };
+    let effectiveStatus = "pending";
+    if (pkg.events.length > 0) {
+      const d = pkg.events[0].description.toLowerCase();
+      if (d.includes("livré") || d.includes("remis") || d.includes("signé")) effectiveStatus = "delivered";
+      else if (d.includes("en livraison") || (d.includes("distribution") && d.includes("mettre"))) effectiveStatus = "out_for_delivery";
+      else if (d.includes("transit") || d.includes("traitement") || d.includes("tri local")) effectiveStatus = "in_transit";
+      else if (d.includes("confié") || d.includes("préparation") || d.includes("pris en charge")) effectiveStatus = "info_received";
+      else effectiveStatus = "in_transit";
+    }
+    return { ...pkg, status: effectiveStatus, events: undefined };
+  });
+
+  return NextResponse.json({ packages: packagesWithStatus, total, page, pageSize });
 }
 
 export async function POST(request: NextRequest) {

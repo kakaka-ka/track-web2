@@ -76,19 +76,34 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(sanitize(pkg));
 }
 
+function deriveStatus(events: TrackingEvent[]): string {
+  if (events.length === 0) return "pending";
+  // events are sorted desc — [0] is the most recent past event
+  const d = events[0].description.toLowerCase();
+  if (d.includes("livré") || d.includes("remis") || d.includes("signé")) return "delivered";
+  if (d.includes("en livraison") || d.includes("mise en livraison") ||
+      (d.includes("distribution") && d.includes("mettre"))) return "out_for_delivery";
+  if (d.includes("transit") || d.includes("traitement") || d.includes("tri local")) return "in_transit";
+  if (d.includes("confié") || d.includes("préparation") || d.includes("pris en charge")) return "info_received";
+  return "in_transit";
+}
+
 function sanitize(pkg: PackageWithRelations) {
   const AMAZON_PATTERN = /amazon|amzn|fulfillment by amazon/gi;
-  const nowParis = new Date(); // UTC, compare directly with stored UTC times
+  const now = new Date();
 
-  // Only show events that have already happened (time <= now)
-  // If package is delivered, show all events (locked)
-  const visibleEvents = pkg.status === "delivered"
+  // Delivered packages are locked — show all events
+  const isDelivered = pkg.status === "delivered";
+  const visibleEvents = isDelivered
     ? pkg.events
-    : pkg.events.filter((e) => e.time <= nowParis);
+    : pkg.events.filter((e) => e.time <= now);
+
+  // Status is always derived from what has actually happened, not stored value
+  const effectiveStatus = isDelivered ? "delivered" : deriveStatus(visibleEvents);
 
   return {
     trackingNumber: pkg.trackingNumber,
-    status: pkg.status,
+    status: effectiveStatus,
     statusDetail: pkg.statusDetail?.replace(AMAZON_PATTERN, ""),
     carrier: {
       name: pkg.carrier.name.replace(AMAZON_PATTERN, ""),
