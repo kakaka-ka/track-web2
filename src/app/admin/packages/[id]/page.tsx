@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AdminNav from "@/components/AdminNav";
 import Link from "next/link";
+import DateTimePicker from "@/components/DateTimePicker";
 
 const STATUS_OPTIONS = [
   { value: "pending", label: "待处理" },
@@ -349,15 +350,13 @@ export default function PackageDetailPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">发货时间（巴黎时间）</label>
-                    <input type="datetime-local" value={editForm.shippedAt}
-                      onChange={(e) => setEditForm({ ...editForm, shippedAt: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <DateTimePicker value={editForm.shippedAt}
+                      onChange={(v) => setEditForm({ ...editForm, shippedAt: v })} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">预计送达（巴黎时间）</label>
-                    <input type="datetime-local" value={editForm.estimatedDelivery}
-                      onChange={(e) => setEditForm({ ...editForm, estimatedDelivery: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <DateTimePicker value={editForm.estimatedDelivery}
+                      onChange={(v) => setEditForm({ ...editForm, estimatedDelivery: v })} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">订单号</label>
@@ -467,9 +466,8 @@ export default function PackageDetailPage() {
               <form onSubmit={handleAddEvent} className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">时间（巴黎时间）*</label>
-                  <input type="datetime-local" required value={newEvent.time}
-                    onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <DateTimePicker required value={newEvent.time}
+                    onChange={(v) => setNewEvent({ ...newEvent, time: v })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">地点</label>
@@ -506,15 +504,13 @@ export default function PackageDetailPage() {
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">发货时间（巴黎时间）</label>
-                  <input type="datetime-local" value={genShippedAt}
-                    onChange={(e) => { setGenShippedAt(e.target.value); setPreviewEvents([]); }}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <DateTimePicker value={genShippedAt}
+                    onChange={(v) => { setGenShippedAt(v); setPreviewEvents([]); }} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">预计送达（巴黎时间）</label>
-                  <input type="datetime-local" value={genDelivery}
-                    onChange={(e) => { setGenDelivery(e.target.value); setPreviewEvents([]); }}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <DateTimePicker value={genDelivery}
+                    onChange={(v) => { setGenDelivery(v); setPreviewEvents([]); }} />
                 </div>
               </div>
 

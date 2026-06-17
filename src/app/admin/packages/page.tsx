@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import AdminNav from "@/components/AdminNav";
+import DateTimePicker from "@/components/DateTimePicker";
 
 interface Carrier { id: number; name: string; code: string; }
 interface Template { id: number; name: string; events: { description: string; location?: string; offsetHours: number }[]; }
@@ -331,15 +332,13 @@ export default function PackagesPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">发货时间（巴黎时间）*</label>
-                    <input type="datetime-local" required value={addForm.shippedAt}
-                      onChange={(e) => setAddForm({ ...addForm, shippedAt: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <DateTimePicker required value={addForm.shippedAt}
+                      onChange={(v) => setAddForm({ ...addForm, shippedAt: v })} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">预计送达（巴黎时间）*</label>
-                    <input type="datetime-local" required value={addForm.estimatedDelivery}
-                      onChange={(e) => setAddForm({ ...addForm, estimatedDelivery: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <DateTimePicker required value={addForm.estimatedDelivery}
+                      onChange={(v) => setAddForm({ ...addForm, estimatedDelivery: v })} />
                   </div>
                 </div>
 
