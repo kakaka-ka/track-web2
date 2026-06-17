@@ -1,0 +1,70 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Carrier {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  code      String    @unique
+  packages  Package[]
+  templates Template[]
+  createdAt DateTime  @default(now())
+}
+
+model Template {
+  id          Int             @id @default(autoincrement())
+  name        String
+  carrierId   Int?
+  carrier     Carrier?        @relation(fields: [carrierId], references: [id])
+  description String?
+  events      TemplateEvent[]
+  createdAt   DateTime        @default(now())
+}
+
+model TemplateEvent {
+  id           Int      @id @default(autoincrement())
+  templateId   Int
+  template     Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  sortOrder    Int      @default(0)
+  location     String?
+  description  String
+  offsetHours  Int      @default(0)
+}
+
+model Package {
+  id              Int       @id @default(autoincrement())
+  trackingNumber  String    @unique
+  carrierId       Int
+  carrier         Carrier   @relation(fields: [carrierId], references: [id])
+  status          String    @default("pending")
+  statusDetail    String?
+  lastSyncAt      DateTime?
+  events          TrackingEvent[]
+  note            String?
+  orderId         String?
+  buyerName       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([trackingNumber])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model TrackingEvent {
+  id          Int      @id @default(autoincrement())
+  packageId   Int
+  package     Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  time        DateTime
+  location    String?
+  description String
+  createdAt   DateTime @default(now())
+
+  @@index([packageId])
+}
