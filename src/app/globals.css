@@ -10,3 +10,8 @@ body {
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
+
+/* Force 24h time picker — hide AM/PM column in Chrome/Edge */
+input[type="time"]::-webkit-datetime-edit-ampm-field {
+  display: none;
+}

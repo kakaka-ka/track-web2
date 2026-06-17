@@ -140,6 +140,11 @@ export default function PackageDetailPage() {
   const [newEvent, setNewEvent] = useState({ time: toParisInputValue(new Date()), location: "", description: "" });
   const [addingEvent, setAddingEvent] = useState(false);
 
+  // Edit single event
+  const [editingEvent, setEditingEvent] = useState<TrackEvent | null>(null);
+  const [editEventForm, setEditEventForm] = useState({ time: "", location: "", description: "" });
+  const [savingEvent, setSavingEvent] = useState(false);
+
   // Smart generate template modal
   const [showTemplate, setShowTemplate] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -235,6 +240,33 @@ export default function PackageDetailPage() {
   async function handleDeleteEvent(eventId: number) {
     if (!confirm("确认删除该物流事件？")) return;
     await fetch(`/api/admin/packages/${id}/events/${eventId}`, { method: "DELETE" });
+    load();
+  }
+
+  function openEditEvent(event: TrackEvent) {
+    setEditingEvent(event);
+    setEditEventForm({
+      time: toParisInputValue(event.time),
+      location: event.location ?? "",
+      description: event.description,
+    });
+  }
+
+  async function handleSaveEvent(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingEvent) return;
+    setSavingEvent(true);
+    await fetch(`/api/admin/packages/${id}/events/${editingEvent.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        time: parisInputToISO(editEventForm.time),
+        location: editEventForm.location || null,
+        description: editEventForm.description,
+      }),
+    });
+    setSavingEvent(false);
+    setEditingEvent(null);
     load();
   }
 
@@ -438,17 +470,21 @@ export default function PackageDetailPage() {
                         {i < arr.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1" />}
                       </div>
                       <div className="pb-4 flex-1 flex items-start justify-between">
-                        <div>
+                        <div
+                          className={`flex-1 ${!isDelivered ? "cursor-pointer hover:opacity-70" : ""}`}
+                          onClick={() => !isDelivered && openEditEvent(event)}
+                        >
                           <p className={`text-sm font-medium ${i === arr.length - 1 ? "text-gray-900" : "text-gray-600"}`}>
                             {event.description}
                           </p>
                           <p className="text-xs text-gray-400 mt-0.5">
                             {toParisDateShort(event.time)}
                             {event.location && ` · ${event.location}`}
+                            {!isDelivered && <span className="ml-1 text-blue-300 opacity-0 group-hover:opacity-100 transition-opacity">✎</span>}
                           </p>
                         </div>
                         {!isDelivered && (
-                          <button onClick={() => handleDeleteEvent(event.id)}
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.id); }}
                             className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs ml-3 flex-shrink-0 transition-opacity">
                             删除
                           </button>
@@ -490,6 +526,43 @@ export default function PackageDetailPage() {
                   <button type="button" onClick={() => setShowAddEvent(false)} className="flex-1 border border-gray-300 rounded-lg py-2 text-sm hover:bg-gray-50">取消</button>
                   <button type="submit" disabled={addingEvent} className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-60">
                     {addingEvent ? "添加中..." : "添加"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Event Modal */}
+        {editingEvent && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+              <h2 className="text-lg font-semibold mb-4">编辑物流事件</h2>
+              <form onSubmit={handleSaveEvent} className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">时间（巴黎时间）*</label>
+                  <DateTimePicker required value={editEventForm.time}
+                    onChange={(v) => setEditEventForm({ ...editEventForm, time: v })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">地点</label>
+                  <input value={editEventForm.location}
+                    onChange={(e) => setEditEventForm({ ...editEventForm, location: e.target.value })}
+                    placeholder="例：France"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">描述 *</label>
+                  <textarea required rows={3} value={editEventForm.description}
+                    onChange={(e) => setEditEventForm({ ...editEventForm, description: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <button type="button" onClick={() => setEditingEvent(null)}
+                    className="flex-1 border border-gray-300 rounded-lg py-2 text-sm hover:bg-gray-50">取消</button>
+                  <button type="submit" disabled={savingEvent}
+                    className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-60">
+                    {savingEvent ? "保存中..." : "保存"}
                   </button>
                 </div>
               </form>
