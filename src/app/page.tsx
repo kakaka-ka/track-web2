@@ -60,7 +60,6 @@ export default function HomePage() {
           <nav className="hidden md:flex items-center gap-6 text-sm text-gray-500">
             <a href="#features" className="hover:text-gray-800 transition-colors">Fonctionnalités</a>
             <a href="#carriers" className="hover:text-gray-800 transition-colors">Transporteurs</a>
-            <a href="/admin" className="hover:text-gray-800 transition-colors">Admin</a>
           </nav>
         </div>
       </header>
