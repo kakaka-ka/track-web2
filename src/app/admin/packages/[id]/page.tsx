@@ -242,13 +242,17 @@ export default function PackageDetailPage() {
     if (!selectedTemplate || previewEvents.length === 0) return;
     setApplyingTemplate(true);
 
-    const lastEvent = previewEvents[previewEvents.length - 1];
-    const desc = lastEvent.description.toLowerCase();
-    let status = "in_transit";
-    if (desc.includes("livré") || desc.includes("remis") || desc.includes("signé")) status = "delivered";
-    else if (desc.includes("livraison") || desc.includes("distribution") || desc.includes("en cours de livraison")) status = "out_for_delivery";
-    else if (desc.includes("transit") || desc.includes("traitement") || desc.includes("en cours d")) status = "in_transit";
-    else if (desc.includes("confié") || desc.includes("préparation") || desc.includes("pris en charge")) status = "info_received";
+    const now = new Date();
+    const pastEvents = previewEvents.filter((ev) => ev.time <= now);
+    const lastPast = pastEvents[pastEvents.length - 1];
+    let status = pastEvents.length === 0 ? "pending" : "in_transit";
+    if (lastPast) {
+      const desc = lastPast.description.toLowerCase();
+      if (desc.includes("livré") || desc.includes("remis") || desc.includes("signé")) status = "delivered";
+      else if (desc.includes("livraison") || desc.includes("distribution")) status = "out_for_delivery";
+      else if (desc.includes("transit") || desc.includes("traitement")) status = "in_transit";
+      else if (desc.includes("confié") || desc.includes("préparation") || desc.includes("pris en charge")) status = "info_received";
+    }
 
     await fetch(`/api/admin/packages/${id}/events`, {
       method: "PUT",

@@ -180,13 +180,18 @@ export default function PackagesPage() {
 
     // If we have generated events, save them
     if (generatedEvents.length > 0 && showPreview) {
-      const lastEvent = generatedEvents[generatedEvents.length - 1];
-      const desc = lastEvent.description.toLowerCase();
-      let status = "in_transit";
-      if (desc.includes("livré") || desc.includes("remis")) status = "delivered";
-      else if (desc.includes("livraison") || desc.includes("distribution")) status = "out_for_delivery";
-      else if (desc.includes("transit") || desc.includes("traitement")) status = "in_transit";
-      else if (desc.includes("confié") || desc.includes("préparation")) status = "info_received";
+      // Status is derived from the last event that has already occurred (time <= now)
+      const now = new Date();
+      const pastEvents = generatedEvents.filter((ev) => ev.time <= now);
+      const lastPast = pastEvents[pastEvents.length - 1];
+      let status = pastEvents.length === 0 ? "pending" : "in_transit";
+      if (lastPast) {
+        const desc = lastPast.description.toLowerCase();
+        if (desc.includes("livré") || desc.includes("remis") || desc.includes("signé")) status = "delivered";
+        else if (desc.includes("livraison") || desc.includes("distribution")) status = "out_for_delivery";
+        else if (desc.includes("transit") || desc.includes("traitement")) status = "in_transit";
+        else if (desc.includes("confié") || desc.includes("préparation") || desc.includes("pris en charge")) status = "info_received";
+      }
 
       await fetch(`/api/admin/packages/${pkg.id}/events`, {
         method: "PUT",
