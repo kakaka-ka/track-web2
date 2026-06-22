@@ -5,8 +5,10 @@ import bcrypt from "bcryptjs";
 
 async function requireSuperAdmin() {
   const session = await auth();
+  console.log("[users API] session:", JSON.stringify(session));
   if (!session) return null;
-  if ((session.user as { role?: string }).role !== "super_admin") return null;
+  const role = (session.user as { role?: string })?.role;
+  if (role !== "super_admin") return null;
   return session;
 }
 
