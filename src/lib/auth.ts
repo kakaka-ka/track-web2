@@ -32,7 +32,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             if (ok) return { id: String(user.id), name: user.username, role: user.role };
             return null;
           }
-        } catch {
+        } catch (e) {
+          console.error("[auth] DB lookup failed:", e);
           // DB unavailable — fall through to env var backup
         }
 
