@@ -59,6 +59,15 @@ model Package {
   @@index([createdAt])
 }
 
+model AdminUser {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  role         String   @default("admin") // "super_admin" | "admin"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model TrackingEvent {
   id          Int      @id @default(autoincrement())
   packageId   Int
