@@ -15,8 +15,9 @@ const NAV = [
 
 export default function AdminNav() {
   const path = usePathname();
-  const { data: session } = useSession();
-  const role = (session?.user as { role?: string })?.role;
+  const sessionResult = useSession();
+  const session = sessionResult?.data;
+  const role = (session?.user as { role?: string } | undefined)?.role;
   const isSuperAdmin = role === "super_admin";
 
   return (
