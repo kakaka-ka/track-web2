@@ -1,7 +1,10 @@
-"use client";
+import type { Metadata } from "next";
+import AdminSessionProvider from "@/components/AdminSessionProvider";
 
-import { SessionProvider } from "next-auth/react";
+export const metadata: Metadata = {
+  title: "Admin - goooootrack",
+};
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  return <SessionProvider>{children}</SessionProvider>;
+  return <AdminSessionProvider>{children}</AdminSessionProvider>;
 }
