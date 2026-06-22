@@ -1,9 +1,7 @@
-import type { Metadata } from "next";
+"use client";
 
-export const metadata: Metadata = {
-  title: "Admin - SuiviColis",
-};
+import { SessionProvider } from "next-auth/react";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return <SessionProvider>{children}</SessionProvider>;
 }
