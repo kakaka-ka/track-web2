@@ -6,8 +6,9 @@ import bcrypt from "bcryptjs";
 async function requireSuperAdmin() {
   const session = await auth();
   console.log("[users API] session:", JSON.stringify(session));
-  if (!session) return null;
+  if (!session) { console.log("[users API] no session"); return null; }
   const role = (session.user as { role?: string })?.role;
+  console.log("[users API] role:", role, "isSuperAdmin:", role === "super_admin");
   if (role !== "super_admin") return null;
   return session;
 }
@@ -16,11 +17,16 @@ export async function GET() {
   if (!await requireSuperAdmin()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const users = await prisma.adminUser.findMany({
-    select: { id: true, username: true, role: true, createdAt: true },
-    orderBy: { createdAt: "asc" },
-  });
-  return NextResponse.json(users);
+  try {
+    const users = await prisma.adminUser.findMany({
+      select: { id: true, username: true, role: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return NextResponse.json(users);
+  } catch (e) {
+    console.error("[users API] findMany error:", e);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
