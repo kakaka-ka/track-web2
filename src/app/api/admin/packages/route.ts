@@ -1,7 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAdminContext, groupFilter } from "@/lib/adminAuth";
+
+async function findOrCreateCarrierByName(name: string): Promise<number> {
+  const carrierName = name.trim() || "Unknown";
+  const existing = await prisma.carrier.findFirst({ where: { name: carrierName } });
+  if (existing) return existing.id;
+  const code = carrierName.toLowerCase().replace(/\s+/g, "_").slice(0, 20) || "carrier";
+  try {
+    const created = await prisma.carrier.create({ data: { name: carrierName, code } });
+    return created.id;
+  } catch {
+    const byCode = await prisma.carrier.findFirst({ where: { code } });
+    if (byCode) return byCode.id;
+    throw new Error(`无法创建承运商: ${carrierName}`);
+  }
+}
 
 export async function GET(request: NextRequest) {
+  const authResult = await getAdminContext(request);
+  if ("denied" in authResult) return authResult.denied;
+  const { context } = authResult;
+
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = 20;
@@ -9,6 +29,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") ?? "";
 
   const where = {
+    ...groupFilter(context),
     ...(search && {
       OR: [
         { trackingNumber: { contains: search } },
@@ -39,13 +60,6 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
-  // Derive effective status from last past event
-  const STATUS_LABELS_MAP: Record<string, string> = {
-    pending: "pending", info_received: "info_received", in_transit: "in_transit",
-    out_for_delivery: "out_for_delivery", delivered: "delivered",
-    delivery_failed: "delivery_failed", exception: "exception", expired: "expired",
-  };
-
   const packagesWithStatus = packages.map((pkg) => {
     if (pkg.status === "delivered") return { ...pkg, events: undefined };
     let effectiveStatus = "pending";
@@ -64,23 +78,58 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { trackingNumber, carrierId, orderId, buyerName, note, shippedAt, estimatedDelivery } = body;
+  const authResult = await getAdminContext(request);
+  if ("denied" in authResult) return authResult.denied;
+  const { context } = authResult;
 
-  if (!trackingNumber || !carrierId) {
-    return NextResponse.json({ error: "trackingNumber and carrierId required" }, { status: 400 });
+  const body = await request.json();
+  const {
+    trackingNumber, carrierId, carrierName, orderId, buyerName, note,
+    shippedAt, estimatedDelivery,
+  } = body;
+
+  if (!trackingNumber) {
+    return NextResponse.json({ error: "trackingNumber required" }, { status: 400 });
   }
 
-  const pkg = await prisma.package.create({
-    data: {
-      trackingNumber,
-      carrierId: Number(carrierId),
-      orderId,
-      buyerName,
-      note,
-      shippedAt: shippedAt ? new Date(shippedAt) : null,
-      estimatedDelivery: estimatedDelivery ? new Date(estimatedDelivery) : null,
-    },
+  let resolvedCarrierId: number;
+  try {
+    if (carrierId) {
+      resolvedCarrierId = Number(carrierId);
+    } else if (carrierName && String(carrierName).trim()) {
+      resolvedCarrierId = await findOrCreateCarrierByName(String(carrierName));
+    } else {
+      return NextResponse.json({ error: "carrierId or carrierName required" }, { status: 400 });
+    }
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "carrier resolve failed" },
+      { status: 400 }
+    );
+  }
+
+  // 确定 groupId：super_admin 可指定；admin 只能用自己的组
+  let packageGroupId: number | null = null;
+  if (context.role === "super_admin") {
+    packageGroupId = body.groupId ? Number(body.groupId) : null;
+  } else {
+    packageGroupId = context.groupId;
+  }
+
+  const data = {
+    carrierId: resolvedCarrierId,
+    orderId: orderId ?? undefined,
+    buyerName: buyerName ?? undefined,
+    note: note ?? undefined,
+    shippedAt: shippedAt ? new Date(shippedAt) : null,
+    estimatedDelivery: estimatedDelivery ? new Date(estimatedDelivery) : null,
+    groupId: packageGroupId,
+  };
+
+  const pkg = await prisma.package.upsert({
+    where: { trackingNumber },
+    update: data,
+    create: { trackingNumber, ...data },
     include: { carrier: true },
   });
 

@@ -4,9 +4,10 @@ import Credentials from "next-auth/providers/credentials";
 declare module "next-auth" {
   interface User {
     role?: string;
+    groupId?: number | null;
   }
   interface Session {
-    user: { name?: string | null; role?: string };
+    user: { name?: string | null; role?: string; groupId?: number | null };
   }
 }
 
@@ -28,7 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const user = await prisma.adminUser.findUnique({ where: { username } });
           if (user) {
             const ok = await bcrypt.compare(password, user.passwordHash);
-            if (ok) return { id: String(user.id), name: user.username, role: user.role };
+            if (ok) return { id: String(user.id), name: user.username, role: user.role, groupId: user.groupId };
             return null;
           }
         } catch (e) {
@@ -51,10 +52,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     jwt({ token, user }) {
       if (user?.role) token.role = user.role;
+      if (user && "groupId" in user) token.groupId = user.groupId;
       return token;
     },
     session({ session, token }) {
-      if (session.user) session.user.role = token.role as string;
+      if (session.user) {
+        session.user.role = token.role as string;
+        session.user.groupId = token.groupId as number | null | undefined;
+      }
       return session;
     },
   },

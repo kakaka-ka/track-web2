@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { getAdminContext } from "@/lib/adminAuth";
 
 const AMAZON_PATTERN = /amazon|amzn|Amazon\.com/gi;
 
@@ -9,7 +10,6 @@ function cleanValue(val: unknown): string {
   return String(val ?? "").replace(AMAZON_PATTERN, "").trim();
 }
 
-// Known column names in Amazon seller central exports
 const TRACKING_COLS = ["tracking number", "numéro de suivi", "tracking-id", "carrier-tracking-number"];
 const CARRIER_COLS = ["carrier", "transporteur", "shipping-carrier", "carrier-name"];
 const ORDER_COLS = ["order id", "order-id", "numéro de commande", "amazon order id"];
@@ -26,7 +26,8 @@ function findCol(headers: string[], candidates: string[]): string | null {
 
 async function processRows(
   rows: Record<string, unknown>[],
-  defaultCarrierId?: number
+  defaultCarrierId?: number,
+  groupId?: number | null
 ): Promise<{ imported: number; skipped: number; errors: string[] }> {
   if (rows.length === 0) return { imported: 0, skipped: 0, errors: [] };
 
@@ -58,16 +59,12 @@ async function processRows(
       if (carrierCache.has(carrierName)) {
         carrierId = carrierCache.get(carrierName);
       } else {
-        const existing = await prisma.carrier.findFirst({
-          where: { name: { equals: carrierName } },
-        });
+        const existing = await prisma.carrier.findFirst({ where: { name: { equals: carrierName } } });
         if (existing) {
           carrierId = existing.id;
         } else {
           const code = carrierName.toLowerCase().replace(/\s+/g, "_").slice(0, 20);
-          const created = await prisma.carrier.create({
-            data: { name: carrierName, code },
-          });
+          const created = await prisma.carrier.create({ data: { name: carrierName, code } });
           carrierId = created.id;
         }
         carrierCache.set(carrierName, carrierId!);
@@ -83,6 +80,7 @@ async function processRows(
         create: {
           trackingNumber,
           carrierId,
+          groupId: groupId ?? null,
           orderId: orderCol ? cleanValue(row[orderCol]) : undefined,
           buyerName: buyerCol ? cleanValue(row[buyerCol]) : undefined,
         },
@@ -98,14 +96,25 @@ async function processRows(
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await getAdminContext(request);
+  if ("denied" in authResult) return authResult.denied;
+  const { context } = authResult;
+
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
-  const defaultCarrierId = formData.get("carrierId")
-    ? Number(formData.get("carrierId"))
-    : undefined;
+  const defaultCarrierId = formData.get("carrierId") ? Number(formData.get("carrierId")) : undefined;
 
   if (!file) {
     return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+  }
+
+  // 确定 groupId
+  let packageGroupId: number | null = null;
+  if (context.role === "super_admin") {
+    const bodyGroupId = formData.get("groupId");
+    packageGroupId = bodyGroupId ? Number(bodyGroupId) : null;
+  } else {
+    packageGroupId = context.groupId;
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -115,10 +124,7 @@ export async function POST(request: NextRequest) {
 
   if (filename.endsWith(".csv") || filename.endsWith(".txt")) {
     const text = buffer.toString("utf-8");
-    const result = Papa.parse<Record<string, unknown>>(text, {
-      header: true,
-      skipEmptyLines: true,
-    });
+    const result = Papa.parse<Record<string, unknown>>(text, { header: true, skipEmptyLines: true });
     rows = result.data;
   } else if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) {
     const workbook = XLSX.read(buffer, { type: "buffer" });
@@ -128,6 +134,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unsupported file type. Use CSV or XLSX." }, { status: 400 });
   }
 
-  const result = await processRows(rows, defaultCarrierId);
+  const result = await processRows(rows, defaultCarrierId, packageGroupId);
   return NextResponse.json(result);
 }

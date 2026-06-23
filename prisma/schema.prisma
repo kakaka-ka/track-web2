@@ -51,6 +51,8 @@ model Package {
   note            String?
   orderId         String?
   buyerName       String?
+  groupId         Int?
+  group           Group?    @relation(fields: [groupId], references: [id])
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -63,9 +65,19 @@ model AdminUser {
   id           Int      @id @default(autoincrement())
   username     String   @unique
   passwordHash String
-  role         String   @default("admin") // "super_admin" | "admin"
+  role         String   @default("admin")
+  groupId      Int?
+  group        Group?   @relation(fields: [groupId], references: [id])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model Group {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  users     AdminUser[]
+  packages  Package[]
+  createdAt DateTime   @default(now())
 }
 
 model TrackingEvent {

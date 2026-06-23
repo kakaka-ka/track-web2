@@ -3,23 +3,37 @@
 import { useEffect, useState } from "react";
 import AdminNav from "@/components/AdminNav";
 
+interface Group {
+  id: number;
+  name: string;
+  _count: { users: number; packages: number };
+}
+
 interface AdminUser {
   id: number;
   username: string;
   role: string;
+  groupId: number | null;
+  group: { id: number; name: string } | null;
   createdAt: string;
 }
 
 export default function UsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Add form
+  // Add user form
   const [addUsername, setAddUsername] = useState("");
   const [addPassword, setAddPassword] = useState("");
   const [addRole, setAddRole] = useState("admin");
+  const [addGroupId, setAddGroupId] = useState<string>("");
   const [adding, setAdding] = useState(false);
+
+  // Create group form
+  const [newGroupName, setNewGroupName] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   // Reset password modal
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
@@ -28,9 +42,13 @@ export default function UsersPage() {
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/admin/users");
-    if (res.ok) setUsers(await res.json());
+    const [usersRes, groupsRes] = await Promise.all([
+      fetch("/api/admin/users"),
+      fetch("/api/admin/groups"),
+    ]);
+    if (usersRes.ok) setUsers(await usersRes.json());
     else setError("Accès refusé ou erreur serveur");
+    if (groupsRes.ok) setGroups(await groupsRes.json());
     setLoading(false);
   }
 
@@ -42,10 +60,15 @@ export default function UsersPage() {
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: addUsername, password: addPassword, role: addRole }),
+      body: JSON.stringify({
+        username: addUsername,
+        password: addPassword,
+        role: addRole,
+        groupId: addGroupId ? Number(addGroupId) : null,
+      }),
     });
     if (res.ok) {
-      setAddUsername(""); setAddPassword(""); setAddRole("admin");
+      setAddUsername(""); setAddPassword(""); setAddRole("admin"); setAddGroupId("");
       await load();
     } else {
       const d = await res.json();
@@ -55,7 +78,7 @@ export default function UsersPage() {
   }
 
   async function handleDelete(user: AdminUser) {
-    if (!confirm(`Supprimer l'utilisateur "${user.username}" ?`)) return;
+    if (!confirm(`删除用户 "${user.username}"？`)) return;
     await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
     await load();
   }
@@ -69,12 +92,8 @@ export default function UsersPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password: newPassword }),
     });
-    if (res.ok) {
-      setResetTarget(null);
-      setNewPassword("");
-    } else {
-      alert("Erreur lors de la mise à jour");
-    }
+    if (res.ok) { setResetTarget(null); setNewPassword(""); }
+    else alert("修改失败");
     setSaving(false);
   }
 
@@ -88,83 +107,164 @@ export default function UsersPage() {
     await load();
   }
 
+  async function handleGroupChange(user: AdminUser, groupId: string) {
+    await fetch(`/api/admin/users/${user.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupId: groupId ? Number(groupId) : null }),
+    });
+    await load();
+  }
+
+  async function handleCreateGroup(e: React.FormEvent) {
+    e.preventDefault();
+    setCreatingGroup(true);
+    const res = await fetch("/api/admin/groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newGroupName }),
+    });
+    if (res.ok) {
+      setNewGroupName("");
+      await load();
+    } else {
+      const d = await res.json();
+      alert(d.error ?? "创建失败");
+    }
+    setCreatingGroup(false);
+  }
+
   return (
     <div className="flex min-h-screen">
       <AdminNav />
       <main className="flex-1 p-8 bg-gray-50">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">用户管理</h1>
-        <p className="text-gray-500 mb-8 text-sm">管理后台管理员账号</p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">用户与组管理</h1>
+        <p className="text-gray-500 mb-8 text-sm">管理账号、角色和数据隔离分组</p>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 mb-6 text-sm">
-            {error}
-          </div>
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 mb-6 text-sm">{error}</div>
         )}
 
+        {/* Groups section */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
+          <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold text-gray-800">分组管理</h2>
+              <p className="text-xs text-gray-400 mt-0.5">每组的数据相互隔离，管理员只能看到自己组的包裹</p>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex flex-wrap gap-3 mb-4">
+              {groups.map((g) => (
+                <div key={g.id} className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 min-w-[140px]">
+                  <div className="font-semibold text-blue-800 text-sm">{g.name}</div>
+                  <div className="text-xs text-blue-500 mt-1">
+                    {g._count.users} 用户 · {g._count.packages} 包裹
+                  </div>
+                </div>
+              ))}
+              {groups.length === 0 && !loading && (
+                <div className="text-sm text-gray-400">暂无分组</div>
+              )}
+            </div>
+            <form onSubmit={handleCreateGroup} className="flex gap-2 items-center">
+              <input
+                required
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                placeholder="新组名称，如：欧洲仓"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-52"
+              />
+              <button
+                type="submit"
+                disabled={creatingGroup}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
+              >
+                {creatingGroup ? "创建中..." : "创建分组"}
+              </button>
+            </form>
+          </div>
+        </div>
+
         {/* User list */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-8">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
           <div className="p-5 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-800">现有账号</h2>
+            <h2 className="font-semibold text-gray-800">账号列表</h2>
           </div>
           {loading ? (
             <div className="p-8 text-center text-gray-400 text-sm">加载中...</div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-left">
-                  <th className="px-5 py-3 text-gray-500 font-medium">用户名</th>
-                  <th className="px-5 py-3 text-gray-500 font-medium">角色</th>
-                  <th className="px-5 py-3 text-gray-500 font-medium">创建时间</th>
-                  <th className="px-5 py-3 text-gray-500 font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                    <td className="px-5 py-3 font-mono font-medium text-gray-900">{u.username}</td>
-                    <td className="px-5 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        u.role === "super_admin"
-                          ? "bg-purple-100 text-purple-700"
-                          : "bg-blue-50 text-blue-700"
-                      }`}>
-                        {u.role === "super_admin" ? "超级管理员" : "管理员"}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-gray-500">
-                      {new Date(u.createdAt).toLocaleDateString("fr-FR")}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => { setResetTarget(u); setNewPassword(""); }}
-                          className="text-xs text-blue-600 hover:underline"
-                        >
-                          改密码
-                        </button>
-                        <button
-                          onClick={() => handleToggleRole(u)}
-                          className="text-xs text-gray-500 hover:underline"
-                        >
-                          {u.role === "super_admin" ? "降为管理员" : "升为超级管理员"}
-                        </button>
-                        <button
-                          onClick={() => handleDelete(u)}
-                          className="text-xs text-red-500 hover:underline"
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-left">
+                    <th className="px-5 py-3 text-gray-500 font-medium">用户名</th>
+                    <th className="px-5 py-3 text-gray-500 font-medium">角色</th>
+                    <th className="px-5 py-3 text-gray-500 font-medium">所属组</th>
+                    <th className="px-5 py-3 text-gray-500 font-medium">创建时间</th>
+                    <th className="px-5 py-3 text-gray-500 font-medium">操作</th>
                   </tr>
-                ))}
-                {users.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-5 py-8 text-center text-gray-400">暂无账号</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                      <td className="px-5 py-3 font-mono font-medium text-gray-900">{u.username}</td>
+                      <td className="px-5 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          u.role === "super_admin"
+                            ? "bg-purple-100 text-purple-700"
+                            : "bg-blue-50 text-blue-700"
+                        }`}>
+                          {u.role === "super_admin" ? "超级管理员" : "管理员"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        <select
+                          value={u.groupId ?? ""}
+                          onChange={(e) => handleGroupChange(u, e.target.value)}
+                          className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                        >
+                          <option value="">— 无组（super_admin）</option>
+                          {groups.map((g) => (
+                            <option key={g.id} value={g.id}>{g.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-5 py-3 text-gray-500">
+                        {new Date(u.createdAt).toLocaleDateString("fr-FR")}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => { setResetTarget(u); setNewPassword(""); }}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            改密码
+                          </button>
+                          <button
+                            onClick={() => handleToggleRole(u)}
+                            className="text-xs text-gray-500 hover:underline"
+                          >
+                            {u.role === "super_admin" ? "降为管理员" : "升为超管"}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(u)}
+                            className="text-xs text-red-500 hover:underline"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-8 text-center text-gray-400">暂无账号</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
@@ -180,7 +280,7 @@ export default function UsersPage() {
                 required
                 value={addUsername}
                 onChange={(e) => setAddUsername(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-40"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-36"
                 placeholder="alice"
               />
             </div>
@@ -191,7 +291,7 @@ export default function UsersPage() {
                 type="password"
                 value={addPassword}
                 onChange={(e) => setAddPassword(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-40"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-36"
                 placeholder="••••••••"
               />
             </div>
@@ -206,12 +306,25 @@ export default function UsersPage() {
                 <option value="super_admin">超级管理员</option>
               </select>
             </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">所属组</label>
+              <select
+                value={addGroupId}
+                onChange={(e) => setAddGroupId(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">无（super_admin 用）</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
             <button
               type="submit"
               disabled={adding}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
             >
-              {adding ? "添加中..." : "添加"}
+              {adding ? "添加中..." : "添加账号"}
             </button>
           </form>
         </div>
