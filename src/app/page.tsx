@@ -1,20 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export default function HomePage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     const number = input.trim();
     if (!number) return;
     setLoading(true);
-    // 直接跳转到 /{单号}，由服务端页面处理查询和展示
-    router.push(`/${encodeURIComponent(number)}`);
+    window.location.href = `/${encodeURIComponent(number)}`;
   }
 
   return (
