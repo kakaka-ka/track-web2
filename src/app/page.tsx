@@ -1,46 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import TrackingResult from "@/components/TrackingResult";
-
-interface TrackData {
-  trackingNumber: string;
-  status: string;
-  statusDetail: string;
-  carrier: { name: string; code: string };
-  lastSyncAt: string;
-  events: { time: string; location: string; description: string }[];
-}
+import { useRouter } from "next/navigation";
 
 export default function HomePage() {
   const [input, setInput] = useState("");
-  const [result, setResult] = useState<TrackData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const router = useRouter();
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     const number = input.trim();
     if (!number) return;
     setLoading(true);
-    setError("");
-    setResult(null);
-    try {
-      const res = await fetch(`/api/track?number=${encodeURIComponent(number)}`);
-      if (res.status === 404) {
-        window.location.href = `https://t.17track.net/fr#nums=${encodeURIComponent(number)}&fc=6051`;
-        return;
-      } else if (!res.ok) {
-        setError("Erreur de serveur. Veuillez réessayer plus tard.");
-      } else {
-        const data = await res.json();
-        setResult(data);
-      }
-    } catch {
-      setError("Erreur réseau. Vérifiez votre connexion.");
-    } finally {
-      setLoading(false);
-    }
+    // 直接跳转到 /{单号}，由服务端页面处理查询和展示
+    router.push(`/${encodeURIComponent(number)}`);
   }
 
   return (
@@ -119,18 +93,7 @@ export default function HomePage() {
 
       {/* Results */}
       <main className="max-w-3xl mx-auto px-4 -mt-6 pb-16">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6 text-sm">
-            {error}
-          </div>
-        )}
-        {result && (
-          <div className="mt-0">
-            <TrackingResult data={result} />
-          </div>
-        )}
-
-        {!result && !error && (
+        {!loading && (
           <>
             {/* Features */}
             <div id="features" className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-10">
