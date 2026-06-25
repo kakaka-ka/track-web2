@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminContext, groupFilter } from "@/lib/adminAuth";
+import { buildTrajectory, deriveStatusFromEvents, seedFromString } from "@/lib/trajectory";
 
 async function findOrCreateCarrierByName(name: string): Promise<number> {
   const carrierName = name.trim() || "Unknown";
@@ -133,5 +134,68 @@ export async function POST(request: NextRequest) {
     include: { carrier: true },
   });
 
-  return NextResponse.json(pkg, { status: 201 });
+  // ── 自动生成轨迹(ERP 自发单号用)──────────────────────────────────────────
+  // autoTrajectory:true + estimatedDelivery 时,按模板服务端生成整条轨迹。
+  // 自发单号(如 La Poste 6G...)17track 查不到,只能靠模板模拟。
+  let trajectoryNote: string | undefined;
+  if (body.autoTrajectory && data.estimatedDelivery) {
+    try {
+      const shipped = data.shippedAt ?? new Date();
+      const delivery = data.estimatedDelivery;
+      // 找模板:① 指定 templateId ② 同承运商的模板 ③ 承运商名模糊匹配的模板
+      let template = null;
+      if (body.templateId) {
+        template = await prisma.template.findUnique({
+          where: { id: Number(body.templateId) },
+          include: { events: true },
+        });
+      }
+      if (!template) {
+        template = await prisma.template.findFirst({
+          where: { carrierId: resolvedCarrierId },
+          include: { events: true },
+          orderBy: { id: "asc" },
+        });
+      }
+      if (!template && carrierName) {
+        template = await prisma.template.findFirst({
+          where: { carrier: { name: { contains: String(carrierName), mode: "insensitive" } } },
+          include: { events: true },
+          orderBy: { id: "asc" },
+        });
+      }
+
+      if (template && template.events.length > 0 && delivery > shipped) {
+        const seed = seedFromString(trackingNumber);
+        const evs = buildTrajectory(template.events, shipped, delivery, seed);
+        const status = deriveStatusFromEvents(evs, new Date());
+        await prisma.$transaction(async (tx) => {
+          await tx.trackingEvent.deleteMany({ where: { packageId: pkg.id } });
+          await tx.trackingEvent.createMany({
+            data: evs.map((e) => ({
+              packageId: pkg.id,
+              time: e.time,
+              location: e.location,
+              description: e.description,
+            })),
+          });
+          await tx.package.update({
+            where: { id: pkg.id },
+            data: { status, lastSyncAt: new Date() },
+          });
+        });
+        trajectoryNote = `已生成 ${evs.length} 条轨迹(模板「${template.name}」)`;
+      } else if (!template) {
+        trajectoryNote = `未找到承运商「${carrierName ?? resolvedCarrierId}」对应的轨迹模板,只建了包裹`;
+      } else if (template.events.length === 0) {
+        trajectoryNote = `模板「${template.name}」没有事件,只建了包裹`;
+      } else {
+        trajectoryNote = "到达日期需晚于发货日期,未生成轨迹";
+      }
+    } catch (e) {
+      trajectoryNote = "轨迹生成失败:" + (e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return NextResponse.json({ ...pkg, trajectoryNote }, { status: 201 });
 }
